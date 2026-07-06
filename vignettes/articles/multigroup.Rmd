@@ -1,0 +1,159 @@
+---
+title: "Multi-Group HTNA (3+ Actor Groups)"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Multi-Group HTNA (3+ Actor Groups)}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 10,
+  fig.height = 7,
+  dpi = 90
+)
+```
+
+HTNA is not limited to two actor groups. This vignette demonstrates how to
+build and visualise a heterogeneous transition network with three groups.
+
+## Simulating a three-actor interaction
+
+We simulate a collaborative coding session with three actors -- a Student, an
+AI assistant, and a System (e.g. IDE or automated tooling) -- each with four
+distinct codes:
+
+```{r}
+library(htna)
+
+set.seed(42)
+
+student_codes <- c("Ask", "Confirm", "Revise", "Evaluate")
+ai_codes      <- c("Suggest", "Explain", "Execute", "Clarify")
+system_codes  <- c("Log", "Notify", "Compile", "Sync")
+sessions      <- paste0("S", sprintf("%03d", 1:30))
+
+make_events <- function(codes, sessions, offset) {
+  rows <- lapply(sessions, function(sid) {
+    n <- sample(15:25, 1)
+    data.frame(
+      session_id       = sid,
+      code             = sample(codes, n, replace = TRUE),
+      order_in_session = seq_len(n) * 3L - offset,
+      stringsAsFactors = FALSE
+    )
+  })
+  do.call(rbind, rows)
+}
+
+student_data <- make_events(student_codes, sessions, 2L)
+ai_data      <- make_events(ai_codes, sessions, 1L)
+system_data  <- make_events(system_codes, sessions, 0L)
+```
+
+## Building a 3-group network
+
+Pass all three groups as a named list:
+
+```{r}
+net3 <- build_htna(
+  list(Student = student_data, AI = ai_data, System = system_data)
+)
+net3
+```
+
+The actor partition now contains three levels:
+
+```{r}
+table(net3$node_groups$group)
+```
+
+## Plotting
+
+With three or more groups, `plot_htna()` automatically switches to a polygon
+(triangle) layout. The three colours from the default HTNA palette are applied
+in order:
+
+```{r}
+plot_htna(net3)
+```
+
+## Per-actor sequences
+
+`sequence_plot_htna()` works the same way with three actors. With
+`by = "state"` each row is one (session, actor) and is coloured by
+the concrete code; with `by = "group"` cells are coloured by actor
+(here Student / AI / System):
+
+```{r, fig.height = 7}
+sequence_plot_htna(net3, by = "state", type = "index")
+```
+
+```{r}
+sequence_plot_htna(net3, by = "group", type = "distribution")
+```
+
+The `by = "state"` legend is split into one block per actor with the
+actor name as a sub-title, so the reader can tell at a glance which
+codes belong to which actor.
+
+## Comparing two networks
+
+Build a second network from the same actors (e.g. with different
+session-level dynamics) and use `plot_htna_diff()` for the elementwise
+difference. Positive differences are green, negative red:
+
+```{r}
+set.seed(7)
+student_data2 <- make_events(student_codes, sessions, 2L)
+ai_data2      <- make_events(ai_codes,      sessions, 1L)
+system_data2  <- make_events(system_codes,  sessions, 0L)
+
+net3b <- build_htna(
+  list(Student = student_data2, AI = ai_data2, System = system_data2)
+)
+
+plot_htna_diff(net3, net3b)
+```
+
+`permutation_htna()` provides the non-parametric significance test; pass the
+result to `plot_htna_diff()` to surface only the edges that differ
+significantly:
+
+```{r}
+perm3 <- permutation_htna(net3, net3b, iter = 200)
+plot_htna_diff(perm3)
+```
+
+```{r}
+plot_htna_diff(perm3, show_nonsig = TRUE)
+```
+
+## Meta-paths across three actors
+
+Patterns now span all three actor types. The default is state-level, with
+a `meta_schema` rollup column tagging each row with its type-level
+template:
+
+```{r}
+extract_meta_paths(net3, length = 3)
+```
+
+Pass `level = "type"` to collapse the rows into the type-level meta-path
+summary:
+
+```{r}
+extract_meta_paths(net3, level = "type", length = 3)
+```
+
+A schema filters the search. For example, the concrete state-level
+instances of paths where the System mediates between Student and AI:
+
+```{r}
+extract_meta_paths(net3, schema = "Student->System->AI")
+```

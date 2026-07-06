@@ -1,0 +1,218 @@
+---
+title: "Getting Started with htna"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Getting Started with htna}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment  = "#>",
+  message  = FALSE,
+  warning  = FALSE,
+  fig.width  = 10,
+  fig.height = 7,
+  dpi = 90
+)
+```
+
+Heterogeneous Transition Network Analysis (HTNA) studies sequences in
+which two or more actors interleave -- a learner and a tutor, a human
+and an AI, a clinician and a patient -- and treats each actor's codes as
+a distinct node group. The `htna` package builds the network, computes
+the usual analytical quantities, and renders the result with the actor
+partition baked into colour, layout, and the legend.
+
+## 1. Building a heterogeneous network
+
+Start from one long-format data frame with an actor-type column tagging
+each row (`"Human"` or `"AI"`) and pass its name as `actor_type` to
+`build_htna()`. The result is a network whose nodes carry the actor
+label they came from. The bundled `human_ai` corpus (see `?human_ai`)
+is used throughout this vignette. 
+
+```{r}
+library(htna)
+data(human_ai)
+
+net <- build_htna(human_ai, actor_type = "actor_type", actor = "session_id")
+```
+
+## 2. Plotting the network
+
+`plot_htna()` lays out actor groups around the circle, colours each node
+by its actor type, and draws the actor legend below the plot:
+
+```{r}
+plot_htna(net)
+```
+
+## 3. Per-actor sequence plots
+
+`sequence_plot_htna()` shows the temporal structure of the sessions.
+With `by = "state"` (the default) each cell is coloured by its
+code; with `by = "group"` cells are coloured by actor type. `type`
+selects the layout: `"index"` renders one row per session,
+`"heatmap"` collapses across sessions into a single carpet, and
+`"distribution"` shows the state composition per timepoint as a
+stacked area.
+
+```{r, fig.height = 5}
+sequence_plot_htna(net, by = "state", type = "index")
+```
+
+```{r}
+sequence_plot_htna(net, by = "state", type = "heatmap")
+```
+
+```{r, fig.height=4}
+sequence_plot_htna(net, by = "group", type = "distribution", na_color = "white")
+```
+
+When `by = "state"`, the legend is split into one block per actor type
+with the actor type name above each block, so the reader can tell at
+a glance which codes belong to which actor type. 
+
+## 4. Centralities
+
+`centralities_htna()` returns per-node centrality measures: one row
+per node, one column per measure, defaulting to nine standard
+measures (out/in strength, in/out closeness, closeness, betweenness,
+RSP betweenness, diffusion, clustering). Pass `measures = c(...)`
+to restrict to a specific set.
+
+```{r}
+centralities_htna(net)
+```
+
+To plot centralities, the `plot_centralities()` function can be used. 
+Each panel is one measure; bars are coloured per state by default, 
+or by actor type with `by = "group"`:
+
+```{r, fig.height = 9}
+plot_centralities(net, by = "state")
+```
+
+```{r, fig.height = 9}
+plot_centralities(net, by = "group")
+```
+
+## 5. Bootstrap
+
+To validate which transitions of an HTNA model are stable,
+`bootstrap_htna()` resamples sessions to obtain edge-weight
+stability and per-edge p-values. `plot_htna_bootstrap()` renders the
+resampled network. By default (`display = "styled"`) all edges are
+shown, with non-significant edges dashed; pass
+`display = "significant"` to keep only the edges that pass the
+significance threshold.
+
+```{r}
+boot <- bootstrap_htna(net)
+plot_htna_bootstrap(boot)
+```
+
+```{r}
+plot_htna_bootstrap(boot, display = "significant")
+```
+
+## 6. Centrality stability
+
+The function `centrality_stability_htna()` runs a case-dropping centrality
+stability check: drops a proportion
+of the sessions, recomputes the centralities, and measures how strongly
+the dropped-sample centralities correlate with the originals. The
+returned `cs` value per measure is the **largest drop proportion at
+which the correlation with the original centralities still meets the
+threshold** (default `0.7`) for at least `certainty` (default `0.95`)
+of resamples — values above ~0.5 are typically considered stable.
+
+```{r}
+cs <- centrality_stability_htna(net, iter = 100, seed = 1)
+cs$cs
+```
+
+By default the check covers `InStrength`, `OutStrength`, and
+`Betweenness` — the three measures whose values are bit-equal between
+htna's `cograph` engine and the reference implementation. 
+ 
+
+## 7. Split-half reliability
+
+The function `reliability_htna()` reports how stable each edge weight is under
+random split-half resampling: it draws `iter` random splits of the
+sessions, builds a network on each half, and summarises the
+agreement (mean / median / max absolute deviation, plus correlation)
+between paired half-networks.  
+
+```{r}
+rel <- reliability_htna(net, iter = 100, seed = 1)
+rel$summary
+```
+
+
+## 8. Comparing two networks
+
+Given two HTNA networks built over the same node set, `plot_htna_diff()`
+draws the edge-level pairwise difference. Positive differences are green,
+negative red.
+
+For example, we compare early vs. late sessions using the `phase` column
+in the dataset:
+
+```{r}
+grouped <-  build_htna(human_ai, actor_type = "actor_type", group = "phase")
+
+early <- grouped[["Early"]]
+late  <- grouped[["Late"]]
+
+plot_htna_diff(early, late)
+```
+
+## 9. Permutation test
+
+The function `permutation_htna()` provides a non-parametric significance test on each
+edge weight difference. Pass the result to `plot_htna_diff()` to render
+significant differences with the pos/neg colouring above; non-significant
+edges are dashed grey when `show_nonsig = TRUE`.
+
+```{r}
+perm <- permutation_htna(early, late, iter = 200)
+plot_htna_diff(perm)
+```
+
+```{r}
+plot_htna_diff(perm, show_nonsig = TRUE)
+```
+
+## 10. Path patterns
+
+`extract_meta_paths()` discovers recurring patterns at two levels. By
+default it returns concrete state-level patterns (alphabet = the code
+set `Ask`, `Plan`, `Check`, ...) and annotates each row with the
+type-level template it instantiates:
+
+```{r}
+extract_meta_paths(net, length = 3)
+```
+
+
+
+A `schema` filters the search. Each part can be a type name (expands to
+every code in that group), a concrete state, or `*`:
+
+```{r}
+extract_meta_paths(net, schema = "Human->AI->Human")
+extract_meta_paths(net, schema = "Human->Ask->*")
+```
+
+Filter by lift to surface over-represented patterns (lift > 1 means
+more frequent than independence would predict):
+
+```{r}
+extract_meta_paths(net, length = 3, min_lift = 2)
+extract_meta_paths(net, level = "type", length = 3, min_lift = 1.2)
+```

@@ -1,0 +1,69 @@
+test_that("centralities_htna() returns one row per node and the requested measures", {
+  net <- make_htna()
+  ct  <- centralities_htna(net)
+
+  expect_s3_class(ct, "htna_centralities")
+  expect_s3_class(ct, "data.frame")
+  expect_equal(nrow(ct), nrow(net$node_groups))
+  expect_true(all(c("node", "actor",
+                    "OutStrength", "InStrength",
+                    "ClosenessIn", "ClosenessOut", "Closeness",
+                    "Betweenness", "BetweennessRSP",
+                    "Diffusion", "Clustering") %in% names(ct)))
+  expect_setequal(ct$node, as.character(net$node_groups$node))
+  expect_setequal(ct$actor, c("Human", "AI"))
+})
+
+test_that("centralities_htna() honours `measures =` subset", {
+  net <- make_htna()
+  ct  <- centralities_htna(net, measures = c("OutStrength", "InStrength"))
+  expect_true(all(c("node", "actor", "OutStrength", "InStrength") %in% names(ct)))
+  expect_false("Closeness" %in% names(ct))
+})
+
+test_that("centralities_htna() rejects unknown measure", {
+  net <- make_htna()
+  expect_error(
+    centralities_htna(net, measures = "Bogus"),
+    regexp = "Unknown measure"
+  )
+})
+
+test_that("centralities_htna() on htna_group stacks per-group rows", {
+  grp <- make_htna_group()
+  ct  <- centralities_htna(grp)
+
+  expect_s3_class(ct, "data.frame")
+  expect_true("group" %in% names(ct))
+  expect_setequal(unique(ct$group), names(grp))
+  # Exactly one row per (group, node) — `>=` would silently allow
+  # duplicates or missing rows.
+  expect_equal(nrow(ct),
+               sum(vapply(grp, function(g) nrow(g$node_groups),
+                          integer(1))))
+})
+
+test_that("plot_centralities() requires ggplot2 (install error otherwise)", {
+  skip_if_not_installed("ggplot2")
+  net <- make_htna()
+  p   <- plot_centralities(net)
+  expect_s3_class(p, "ggplot")
+})
+
+test_that("plot_centralities(by = 'group') colours by actor for single network", {
+  skip_if_not_installed("ggplot2")
+  net <- make_htna()
+  p   <- plot_centralities(net, by = "group")
+  expect_s3_class(p, "ggplot")
+  # The plot must use exactly two distinct fills (one per actor), not
+  # the per-state palette used when `by = "state"`.
+  fills <- unique(ggplot2::ggplot_build(p)$data[[1]]$fill)
+  expect_length(fills, 2L)
+})
+
+test_that("plot_centralities() on htna_group returns ggplot (line+point style)", {
+  skip_if_not_installed("ggplot2")
+  grp <- make_htna_group()
+  p   <- plot_centralities(grp, by = "group")
+  expect_s3_class(p, "ggplot")
+})
