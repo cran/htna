@@ -4,40 +4,16 @@
 \alias{permutation_htna}
 \title{Permutation Test for Network Differences}
 \usage{
-permutation_htna(
-  x,
-  y = NULL,
-  iter = 1000L,
-  alpha = 0.05,
-  paired = FALSE,
-  adjust = "none",
-  nlambda = 50L,
-  seed = NULL
-)
+permutation_htna(x, y = NULL, ...)
 }
 \arguments{
-\item{x}{A \code{netobject} (from \code{\link[Nestimate]{build_network}}).}
+\item{x, y}{The two networks to compare, or a single
+\code{netobject_group} in \code{x} (with \code{y = NULL}) for all pairwise
+comparisons. See \code{\link[Nestimate:permutation]{Nestimate::permutation()}}.}
 
-\item{y}{A \code{netobject} (from \code{\link[Nestimate]{build_network}}).
-Must use the same method and have the same nodes as \code{x}.}
-
-\item{iter}{Integer. Number of permutation iterations (default: 1000).}
-
-\item{alpha}{Numeric. Significance level (default: 0.05).}
-
-\item{paired}{Logical. If \code{TRUE}, permute within pairs (requires
-equal number of observations in \code{x} and \code{y}). Default: FALSE.}
-
-\item{adjust}{Character. p-value adjustment method passed to
-\code{\link[stats]{p.adjust}} (default: \code{"none"}). Common choices:
-\code{"holm"}, \code{"BH"}, \code{"bonferroni"}.}
-
-\item{nlambda}{Integer. Number of lambda values for the \code{glassopath}
-regularisation path (only used when \code{method = "glasso"}).
-Higher values give finer lambda resolution at the cost of speed.
-Default: 50.}
-
-\item{seed}{Integer or NULL. RNG seed for reproducibility.}
+\item{...}{Additional arguments passed to \code{\link[Nestimate:permutation]{Nestimate::permutation()}},
+such as \code{iter}, \code{alpha}, \code{paired}, \code{adjust}, \code{measures}, \code{nlambda},
+and \code{seed}. See that function for the full, current argument list.}
 }
 \value{
 An object of class \code{net_permutation} (single pair) or

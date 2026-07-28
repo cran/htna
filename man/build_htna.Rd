@@ -15,6 +15,7 @@ build_htna(
   method = "relative",
   group = NULL,
   disambiguate = FALSE,
+  source_data = NULL,
   ...
 )
 }
@@ -27,6 +28,16 @@ All frames must share the same column schema.
 \item A single long-format data frame. In that case either
 \code{actor_type} (row-level actor-type IDs) or \code{node_groups}
 (node-level actor-type lookup) must be supplied.
+\item A fitted clustering result from
+\code{Nestimate::build_clusters()},
+\code{Nestimate::cluster_mmm()} (a \code{net_mmm}), or
+\code{tna::cluster_sequences()}, or an already-materialized
+\code{netobject_group}. One HTNA network is returned per sequence
+cluster. The clustering fit is not rerun; assignments, diagnostics,
+fitted MMM weights, and actor metadata are preserved.
+\item A fitted \code{Nestimate::build_mcml()} object. Its node clusters
+become the HTNA actor groups and one full node-level network is rebuilt
+from the original source, including transitions between clusters.
 }}
 
 \item{actor_type}{Character. Name of the column tagging each row's
@@ -56,7 +67,12 @@ character vectors, the order of first appearance.
 Use \code{node_groups} when \code{data} is a single long-format frame
 with no actor-type column and you want to declare the node-to-type
 partition directly. Each code in \code{data[[action]]} must appear in
-exactly one entry. Mutually exclusive with \code{actor_type}.}
+exactly one entry. For clustering inputs, the canonical two-column
+\code{data.frame(node, group)} stored on an existing HTNA model is also
+accepted. The argument may be omitted when Nestimate preserved the
+partition from an HTNA input. Mutually exclusive with \code{actor_type}.
+For an \code{mcml} input, this optionally overrides
+\code{$cluster_members}; otherwise the fitted membership is used.}
 
 \item{action}{Character. Name of the action/code column. Default
 \code{"code"}.}
@@ -69,7 +85,9 @@ exactly one entry. Mutually exclusive with \code{actor_type}.}
 
 \item{method}{Character. Transition method passed to
 \code{\link[Nestimate]{build_network}}: \code{"relative"} (default),
-\code{"frequency"}, or \code{"attention"}.}
+\code{"frequency"}, \code{"co_occurrence"}, or \code{"attention"}.
+Co-occurrence models are undirected and preserve the same actor partition
+as transition models.}
 
 \item{group}{Character. Optional name of a column in \code{data} used to
 split sessions into cohorts (e.g. \code{"cluster"}). When supplied,
@@ -80,6 +98,14 @@ htna networks with class \code{c("htna_group", "netobject_group")}.}
 when a code label appears in more than one actor-type group. If
 \code{TRUE}, codes are prefixed with the actor-type label
 (\code{"Human:Ask"}, \code{"AI:Ask"}) so they become distinct nodes.}
+
+\item{source_data}{Original node-level data for an \code{mcml} input.
+Usually unnecessary when \code{Nestimate::build_mcml()} retained its
+sequence source. Required when the fitted object has no expandable source,
+such as an \code{mcml} built from a transition matrix or edge list. The
+fitted macro and within-cluster weights are deliberately not stitched
+together: rebuilding from this source is what preserves cross-cluster
+transitions.}
 
 \item{...}{Additional arguments forwarded to
 \code{\link[Nestimate]{build_network}}.}
@@ -95,9 +121,16 @@ groups with no further arguments:
 \code{group} (canonical \code{cograph_network} schema, also
 readable by \code{cograph::get_groups}, \code{cluster_summary}, and
 the \code{print} method for \code{cograph_network}).
+\item \code{$actor_levels} - declared actor ordering, also retained as
+metadata on \code{$node_groups} so the table can be passed back to
+\code{build_htna()} without losing that order.
 }
 All other slots are exactly as returned by
-\code{\link[Nestimate]{build_network}}.
+\code{\link[Nestimate]{build_network}}. Clustering inputs return an
+\code{htna_group}; its children retain the actor partition and its outer
+clustering assignments, posterior probabilities, diagnostics, and other
+attributes are preserved. An \code{mcml} input instead returns one
+\code{htna}, equivalent to \code{Nestimate::as_htna()}.
 }
 \description{
 Builds a transition network over a combined sequence of two or more actor
