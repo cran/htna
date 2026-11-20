@@ -2,26 +2,39 @@
 % Please edit documentation in R/methods-stability.R
 \name{print.htna_stability}
 \alias{print.htna_stability}
-\title{Print Method for htna Centrality Stability Objects}
+\alias{print.htna_stability_group}
+\title{Print centrality stability coefficients}
 \usage{
 \method{print}{htna_stability}(x, ...)
+
+\method{print}{htna_stability_group}(x, ...)
 }
 \arguments{
-\item{x}{An object of class \code{htna_stability} from \code{\link[=centrality_stability_htna]{centrality_stability_htna()}}.}
+\item{x}{A result of \code{\link[=centrality_stability_htna]{centrality_stability_htna()}}: an \code{htna_stability}
+or an \code{htna_stability_group}.}
 
-\item{...}{Additional arguments passed to the print method.}
+\item{...}{Unused.}
 }
 \value{
-Invisibly returns the object, prints stability information.
+Invisibly, \code{x}, unchanged.
 }
 \description{
-S3 method for printing htna centrality stability results.
+\code{print()} prints the case-dropping stability (CS) coefficient of each
+centrality measure of an \code{htna_stability} result. The CS coefficient is
+the largest proportion of sessions that can be dropped while the
+correlation with the full-network centralities stays above the threshold
+with the required certainty. The header gives the number of resamples,
+the threshold and the drop proportions, and says when whole actors were
+dropped instead of sessions (\code{actor}). The grouped method prints one
+block per cohort. It returns \code{x} invisibly.
 }
 \examples{
-\donttest{
 data(human_ai)
 net <- build_htna(human_ai, actor_type = "actor_type")
 cs  <- centrality_stability_htna(net, iter = 20, seed = 1)
 print(cs)
 }
+\seealso{
+\code{\link[=as.data.frame.htna_stability]{as.data.frame.htna_stability()}} for the coefficients and the
+correlation table as data frames, \code{\link[=plot.htna_stability]{plot.htna_stability()}}.
 }

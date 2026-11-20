@@ -2,42 +2,42 @@
 % Please edit documentation in R/state_frequencies_htna.R
 \name{state_frequencies_htna}
 \alias{state_frequencies_htna}
-\title{Tidy State Frequency Table}
+\title{Count the codes of a network over all actors}
 \usage{
 state_frequencies_htna(data, ...)
 }
 \arguments{
-\item{data}{Raw sequence data summarised into a state-frequency
-table. See \code{\link[Nestimate:state_frequencies]{Nestimate::state_frequencies()}}.}
+\item{data}{An htna network from \code{\link[=build_htna]{build_htna()}}, or sequence data (a
+wide data frame or a list of character vectors). A grouped network is
+not accepted; use \code{\link[=state_distribution_htna]{state_distribution_htna()}} for the counts of every
+cohort.}
 
-\item{...}{Additional arguments passed to
-\code{\link[Nestimate:state_frequencies]{Nestimate::state_frequencies()}}. See that function for details.}
+\item{...}{Unused.}
 }
 \value{
-A data frame. See \code{\link[Nestimate:state_frequencies]{Nestimate::state_frequencies()}} for
-details.
+A data frame with one row per code, sorted by decreasing count,
+and columns \code{state}, \code{count} and \code{proportion} (the share of all
+events, rounded to four decimals).
 }
 \description{
-htna-named alias of \code{\link[Nestimate:state_frequencies]{Nestimate::state_frequencies()}}. Returns a
-tidy data frame with \code{state}, \code{count}, and \code{proportion} columns
-summarising the within-network state vocabulary.
-}
-\details{
-Companion to \code{\link[=plot_frequencies_htna]{plot_frequencies_htna()}} (which is htna-aware
-via an explicit S3 method). \code{state_frequencies_htna()} itself
-operates on the raw sequence data and is the data side of the same
-family used by the htna tutorials.
+\code{state_frequencies_htna()} counts the codes of a network over all actors:
+every code in the sessions of an htna network, or in raw sequence data,
+in decreasing order of frequency. The pooled table shows which codes
+dominate the interaction as a whole, whichever actor produces them. Each
+code's proportion is its share of all events, so the shares of the
+different actors can be compared directly.
 
-Suffixed \verb{_htna} to avoid clashing with
-\code{Nestimate::state_frequencies()} when both packages are loaded.
+\code{state_frequencies_htna()} runs Nestimate's \code{state_frequencies()} and
+returns a data frame with one row per code.
+
+The table has no actor column; \code{\link[=frequencies_htna]{frequencies_htna()}} reports each code
+under its actor, with shares within the actor.
 }
 \examples{
-\donttest{
 data(human_ai)
 net <- build_htna(human_ai, actor_type = "actor_type")
-state_frequencies_htna(net$data)
-}
+state_frequencies_htna(net)
 }
 \seealso{
-\code{\link[=plot_frequencies_htna]{plot_frequencies_htna()}}, \code{\link[=state_distribution_htna]{state_distribution_htna()}}.
+\code{\link[=frequencies_htna]{frequencies_htna()}}, \code{\link[=plot_frequencies_htna]{plot_frequencies_htna()}}.
 }

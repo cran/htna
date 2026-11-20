@@ -1,63 +1,75 @@
-#' Subsequence Pattern Comparison Across Groups
+#' Compare short sequence patterns between groups of sessions
 #'
-#' Extends [Nestimate::sequence_compare()] with a `level` argument that
-#' lets the comparison run on type-level (meta-path) sequences as well
-#' as state-level sequences.
+#' @description
+#' `sequence_compare_htna()` compares short sequence patterns between the
+#' cohorts of a grouped htna network, or between the groups of a single
+#' network given by `group`. It counts every k-gram (a run of k consecutive
+#' codes) in each group and finds the patterns that are more or less
+#' frequent in a group than expected if pattern and group were independent.
+#' Each pattern gets a standardized residual per group (Haberman, 1973) and,
+#' optionally, a permutation test (the session is the unit) or a chi-square
+#' test of whether its frequency differs between the groups, with p-values
+#' adjusted across all patterns. Two groups of sessions can differ not only
+#' in single transitions but in longer runs of codes, such as a human
+#' request followed by an AI plan and an AI execution.
 #'
-#' Extracts all k-gram patterns (subsequences of length `k`) from the
-#' sequences in each cohort, computes standardised residuals against
-#' the independence model, and optionally runs a permutation or
-#' chi-square test for differences in pattern rates between cohorts.
+#' With `level = "type"` every code is first replaced by its actor type, so
+#' the patterns are meta-paths such as `Human->AI->Human` and the comparison
+#' shows how the turn-taking between actors differs between the groups.
+#' `sequence_compare_htna()` runs Nestimate's `sequence_compare()` on the
+#' sequences and returns a `net_sequence_comparison` object.
 #'
-#' Operates on grouped htna networks (built via
-#' `build_htna(..., group = ...)`), single htna networks paired with a
-#' `group` argument, or wide-format sequence data with an explicit
-#' `group` argument. The actor partition itself is not consumed when
-#' `level = "state"` — sequence comparison is between cohorts of
-#' sessions, not between actors. When `level = "type"`, concrete codes
-#' are folded into their actor type before pattern enumeration, so the
-#' comparison runs on meta-paths.
+#' For single transitions use [permutation_htna()] or [mosaic_plot_htna()];
+#' for descriptive counts of patterns in one network use
+#' [extract_meta_paths()].
 #'
-#' @param x A grouped htna network, a single htna network (paired with
-#'   `group`), or wide-format sequence data. See
-#'   [Nestimate::sequence_compare()].
-#' @param group Grouping specification for the cohorts to compare, when
-#'   not already carried by a grouped htna network. See
-#'   [Nestimate::sequence_compare()].
-#' @param level Character. `"state"` (default) compares concrete
-#'   state-level k-grams; `"type"` first replaces each state with its
-#'   actor type so the comparison runs on meta-paths
-#'   (e.g. `Human->AI->Human`). Only meaningful when `x` is an htna
-#'   network with an actor partition.
-#' @param ... Additional arguments passed to
-#'   [Nestimate::sequence_compare()], such as `sub`, `min_freq`,
-#'   `test`, `iter`, and `adjust`. See that function for the full,
-#'   current argument list.
+#' @param x A grouped htna network (an `htna_group`), or an htna network
+#'   together with `group`.
+#' @param group The grouping of the sessions when `x` is a single network:
+#'   the name of a session-level column of the data the network was built
+#'   from (for example `"phase"`), or a vector with one label per session
+#'   (default `NULL`).
+#' @param level `"state"` (default) compares patterns of codes; `"type"`
+#'   compares patterns of actor types.
+#' @param ... Settings: `sub` (pattern lengths, default `3:5`), `min_freq`
+#'   (minimum count in every group, 5), `test` (`"permutation"`,
+#'   `"chisq"` or `"none"`), `iter` (permutations, 1000), `adjust`
+#'   (multiplicity correction, `"fdr"`) and `actor` (reassign whole actors
+#'   in the permutation test; needs Nestimate 1.0.13 or later).
 #'
-#' @return An object of class `net_sequence_compare`. See
-#'   [Nestimate::sequence_compare()] for full details and the
-#'   corresponding `plot()` method.
+#' @return An object of class `net_sequence_comparison` with `print()`,
+#'   `summary()` and `plot()` methods. `summary()` returns a data frame
+#'   with one row per pattern and columns `pattern`, `length`, one
+#'   `freq_<group>`, `prop_<group>` and `resid_<group>` column per group,
+#'   `effect_size` and, when a test is run, `p_value`.
 #'
-#' @seealso [permutation_htna()] for whole-network differences,
-#'   [mosaic_plot_htna()] for single-step transition residuals,
-#'   [extract_meta_paths()] for descriptive meta-path enumeration.
+#' @section Conditions:
+#' An error of class `htna_bad_input` when `level = "type"` and `x` has no
+#' actor partition; `htna_missing_column` when `group` names a column the
+#' network does not hold.
+#'
+#' @references
+#' Haberman, S. J. (1973). The analysis of residuals in cross-classified
+#' tables. *Biometrics*, 29(1), 205-220. \doi{10.2307/2529686}
+#'
+#' @seealso [extract_meta_paths()], [permutation_htna()],
+#'   [mosaic_plot_htna()].
 #' @examples
-#' \donttest{
 #' data(human_ai)
 #' grp <- build_htna(human_ai, actor_type = "actor_type", group = "phase")
-#'
-#' # State-level comparison (default)
+#' # iter = 50 keeps the example fast; use the default 1000 in practice.
 #' sequence_compare_htna(grp, iter = 50)
-#'
-#' # Meta-path comparison
 #' sequence_compare_htna(grp, level = "type", iter = 50)
-#' }
 #' @export
 sequence_compare_htna <- function(x,
                                   group = NULL,
                                   level = c("state", "type"),
                                   ...) {
   level <- match.arg(level)
+  if (inherits(x, "htna") && is.character(group) && length(group) == 1L &&
+      !is.na(group) && nrow(x$data) != 1L) {
+    group <- .session_column(x, group)
+  }
 
   if (level == "type") {
     if (inherits(x, "htna_group")) {
@@ -66,9 +78,9 @@ sequence_compare_htna <- function(x,
       ng <- if (is.list(x)) x$node_groups else NULL
     }
     if (is.null(ng) || !nrow(ng)) {
-      stop("`level = \"type\"` requires `x` to be an htna network with ",
-           "an actor partition (`$node_groups`). Build it with ",
-           "`build_htna()`.", call. = FALSE)
+      .htna_stop("`level = \"type\"` requires `x` to be an htna network with ",
+                 "an actor partition (`$node_groups`). Build it with ",
+                 "`build_htna()`.")
     }
     if (inherits(x, "htna_group")) {
       cls <- class(x)
@@ -92,15 +104,28 @@ sequence_compare_htna <- function(x,
   d <- net$data
   state_cols <- grep("^T\\d+$", names(d), value = TRUE)
   if (!length(state_cols)) {
-    stop("Could not locate state columns (`T1`, `T2`, ...) in `x$data`.",
-         call. = FALSE)
+    .htna_stop("Could not locate state columns (`T1`, `T2`, ...) in `x$data`.")
   }
-  for (col in state_cols) {
-    vals <- as.character(d[[col]])
-    mapped <- unname(type_map[vals])
-    # NAs in vals (padding) remain NA after the lookup.
-    d[[col]] <- mapped
-  }
+  # NAs (padding) remain NA after the lookup.
+  d[state_cols] <- lapply(d[state_cols], function(col) {
+    unname(type_map[as.character(col)])
+  })
   net$data <- d
   net
+}
+
+# The values of a session-level column of a network, one per session: a
+# column of the metadata the network keeps beside its sequences.
+.session_column <- function(net, column) {
+  sessions <- net$metadata
+  if (!is.data.frame(sessions) || !column %in% names(sessions) ||
+      nrow(sessions) != nrow(net$data)) {
+    .htna_stop("`group` names no session-level column of `x`: `", column,
+               "`. Available: ",
+               paste(setdiff(names(sessions), ".session_label"),
+                     collapse = ", "),
+               ". Give a column name or one label per session.",
+               class = "htna_missing_column")
+  }
+  sessions[[column]]
 }

@@ -1,123 +1,132 @@
-#' Build a Heterogeneous Transition Network (HTNA)
+#' Build a heterogeneous transition network
 #'
-#' Builds a transition network over a combined sequence of two or more actor
-#' groups (e.g. Human and AI) and preserves the actor partition on the result
-#' so downstream plotting and analysis can treat each actor's codes as a
-#' distinct node group.
+#' @description
+#' `build_htna()` builds a heterogeneous transition network: one transition
+#' network over interaction sequences in which the events are produced by two
+#' or more types of actor, such as a learner and an AI assistant. In
+#' heterogeneous transition network analysis (HTNA) each node is a code (an
+#' action or event) and belongs to exactly one actor type, and each directed
+#' edge is the transition from one code to the next within a session
+#' (Lopez-Pernas, Misiejuk and Saqr, 2026). Because the actor partition is
+#' kept on the network, the within-actor transitions (Human to Human) and the
+#' hand-overs between actors (Human to AI, AI to Human) can be estimated,
+#' plotted and tested as distinct parts of one model.
 #'
-#' @param data Either:
-#'   \itemize{
-#'     \item A named list of long-format data frames, one per actor type
-#'       (e.g. \code{list(Human = human_simplified, AI = ai_simplified)}).
-#'       All frames must share the same column schema.
-#'     \item A single long-format data frame. In that case either
-#'       \code{actor_type} (row-level actor-type IDs) or \code{node_groups}
-#'       (node-level actor-type lookup) must be supplied.
-#'     \item A fitted clustering result from
-#'       \code{Nestimate::build_clusters()},
-#'       \code{Nestimate::cluster_mmm()} (a \code{net_mmm}), or
-#'       \code{tna::cluster_sequences()}, or an already-materialized
-#'       \code{netobject_group}. One HTNA network is returned per sequence
-#'       cluster. The clustering fit is not rerun; assignments, diagnostics,
-#'       fitted MMM weights, and actor metadata are preserved.
-#'     \item A fitted \code{Nestimate::build_mcml()} object. Its node clusters
-#'       become the HTNA actor groups and one full node-level network is rebuilt
-#'       from the original source, including transitions between clusters.
-#'   }
-#' @param actor_type Character. Name of the column tagging each row's
-#'   actor type / group (e.g. \code{"Human"} vs \code{"AI"}) when \code{data}
-#'   is a single data frame. Ignored when \code{data} is a named list or
-#'   when \code{node_groups} is supplied.
-#' @param actor Character. Name of an optional column identifying the
-#'   individual actor that performed each event (e.g. a learner / user id).
-#'   Forwarded to \code{\link[Nestimate]{build_network}} with the same
-#'   semantics; orthogonal to \code{actor_type}, which encodes the
-#'   group/type partition over codes.
-#' @param node_groups Node-to-actor-type lookup, in either of two forms:
-#'   \itemize{
-#'     \item A **named list** mapping actor-type labels to character vectors
-#'       of code names, e.g. \code{list(Human = c("Specify", "Command"),
-#'       AI = c("Plan", "Execute"))}.
-#'     \item A **2-column data frame** with one column named after
-#'       \code{action} (the codes) and one other column tagging each code
-#'       with its actor type, e.g.
-#'       \code{data.frame(code = c("Specify", "Plan"),
-#'                        actor_type = c("Human", "AI"))}.
-#'       The actor-type ordering follows the column's factor levels or, for
-#'       character vectors, the order of first appearance.
-#'   }
-#'   Use \code{node_groups} when \code{data} is a single long-format frame
-#'   with no actor-type column and you want to declare the node-to-type
-#'   partition directly. Each code in \code{data[[action]]} must appear in
-#'   exactly one entry. For clustering inputs, the canonical two-column
-#'   \code{data.frame(node, group)} stored on an existing HTNA model is also
-#'   accepted. The argument may be omitted when Nestimate preserved the
-#'   partition from an HTNA input. Mutually exclusive with \code{actor_type}.
-#'   For an \code{mcml} input, this optionally overrides
-#'   \code{$cluster_members}; otherwise the fitted membership is used.
-#' @param action Character. Name of the action/code column. Default
-#'   \code{"code"}.
-#' @param session Character. Name of the session column. Default
-#'   \code{"session_id"}.
-#' @param order Character. Name of the within-session order column. Default
-#'   \code{"order_in_session"}.
-#' @param method Character. Transition method passed to
-#'   \code{\link[Nestimate]{build_network}}: \code{"relative"} (default),
-#'   \code{"frequency"}, \code{"co_occurrence"}, or \code{"attention"}.
-#'   Co-occurrence models are undirected and preserve the same actor partition
-#'   as transition models.
-#' @param group Character. Optional name of a column in \code{data} used to
-#'   split sessions into cohorts (e.g. \code{"cluster"}). When supplied,
-#'   one network is built per group level and the result is a named list of
-#'   htna networks with class \code{c("htna_group", "netobject_group")}.
-#' @param disambiguate Logical. If \code{FALSE} (default), the function errors
-#'   when a code label appears in more than one actor-type group. If
-#'   \code{TRUE}, codes are prefixed with the actor-type label
-#'   (\code{"Human:Ask"}, \code{"AI:Ask"}) so they become distinct nodes.
-#' @param source_data Original node-level data for an \code{mcml} input.
-#'   Usually unnecessary when \code{Nestimate::build_mcml()} retained its
-#'   sequence source. Required when the fitted object has no expandable source,
-#'   such as an \code{mcml} built from a transition matrix or edge list. The
-#'   fitted macro and within-cluster weights are deliberately not stitched
-#'   together: rebuilding from this source is what preserves cross-cluster
-#'   transitions.
-#' @param ... Additional arguments forwarded to
-#'   \code{\link[Nestimate]{build_network}}.
+#' `build_htna()` orders the events of every session in time, estimates the
+#' transition network over the combined sequence with the chosen `method`
+#' (relative transition probabilities by default, or frequencies,
+#' co-occurrences or attention weights), and attaches the actor type of every
+#' node. The actor partition can be given in three ways: a named list of one
+#' long data frame per actor type, a single data frame with a column naming
+#' the actor type of each row (`actor_type`), or a single data frame together
+#' with a code-to-actor lookup (`node_groups`). With `group`, one network is
+#' estimated per level of a session-level variable (for example an early and
+#' a late phase), in the order of the factor levels. A fitted sequence
+#' clustering (from `Nestimate::build_clusters()`, `Nestimate::cluster_mmm()`
+#' or `tna::cluster_sequences()`) is turned into one network per cluster
+#' without refitting, and a fitted `Nestimate::build_mcml()` model into one
+#' network whose actor types are its node clusters.
 #'
-#' @return A \code{netobject} with the actor partition stored in cograph's
-#'   canonical schema, so \code{cograph::plot_htna(net)} auto-detects the
-#'   groups with no further arguments:
-#'   \itemize{
-#'     \item \code{$nodes$groups} - actor label per node (the column name
-#'       \code{cograph::plot_htna} auto-detects).
-#'     \item \code{$node_groups} - data frame with columns \code{node} and
-#'       \code{group} (canonical \code{cograph_network} schema, also
-#'       readable by \code{cograph::get_groups}, \code{cluster_summary}, and
-#'       the \code{print} method for \code{cograph_network}).
-#'     \item \code{$actor_levels} - declared actor ordering, also retained as
-#'       metadata on \code{$node_groups} so the table can be passed back to
-#'       \code{build_htna()} without losing that order.
-#'   }
-#'   All other slots are exactly as returned by
-#'   \code{\link[Nestimate]{build_network}}. Clustering inputs return an
-#'   \code{htna_group}; its children retain the actor partition and its outer
-#'   clustering assignments, posterior probabilities, diagnostics, and other
-#'   attributes are preserved. An \code{mcml} input instead returns one
-#'   \code{htna}, equivalent to \code{Nestimate::as_htna()}.
+#' It returns an `htna` network, or an `htna_group` with one network per
+#' cohort or cluster. The grouped result is passed as it is to the
+#' comparison, assessment and plotting functions, which work through every
+#' cohort. Use [summary.htna()] to describe the result and
+#' [as.data.frame.htna()] for its edges and nodes.
 #'
-#' @seealso \code{\link[Nestimate]{build_network}},
-#'   \code{\link[Nestimate]{build_tna}},
-#'   \code{\link[cograph]{plot_htna}}
+#' @param data The event data, in one of these forms:
+#'   * a named list of long data frames, one per actor type, with the same
+#'     columns, e.g. `list(Human = human_simplified, AI = ai_simplified)`;
+#'   * one long data frame, with `actor_type` or `node_groups`;
+#'   * a fitted clustering (`net_clustering`, `net_mmm`, `tna_clustering`)
+#'     or a `netobject_group`, giving one network per cluster;
+#'   * a fitted `mcml` model, whose node clusters become the actor types.
+#' @param actor_type Name of the column giving the actor type of each row,
+#'   for a single data frame. A factor column sets the order of the actor
+#'   types; otherwise they are ordered by first appearance.
+#' @param actor Name of an optional column identifying the individual who
+#'   produced each event (for example a learner id). Independent of
+#'   `actor_type`. Default `NULL`.
+#' @param node_groups Code-to-actor lookup for a single data frame without an
+#'   actor-type column: a named list of code vectors, e.g.
+#'   `list(Human = c("Specify", "Check"), AI = c("Plan", "Execute"))`, or a
+#'   two-column data frame with the code column (named as `action`) and the
+#'   actor-type column, such as [human_ai_codebook]. Every code must belong to
+#'   exactly one actor type. For a clustering or `mcml` input it optionally
+#'   supplies or overrides the partition. Use either `actor_type` or
+#'   `node_groups`, not both.
+#' @param action Name of the code column. Default `"code"`.
+#' @param session Name of the session column. Default `"session_id"`.
+#' @param order Name of the within-session order column. Default
+#'   `"order_in_session"`.
+#' @param method Network estimator: `"relative"` (default, transition
+#'   probabilities), `"frequency"`, `"co_occurrence"` (undirected),
+#'   `"attention"`, `"reverse"`, `"ngram"`, `"gap"` or `"latency"`.
+#'   `"latency"` weights each reply by its speed and needs `time`
+#'   (Nestimate 1.0.20 or later), with times that differ within a session;
+#'   the bundled `human_ai` has one time per session and cannot be used.
+#' @param group Name of a session-level column defining cohorts; one network
+#'   is built per cohort. Default `NULL` (one network).
+#' @param disambiguate If `TRUE`, a code used by more than one actor type is
+#'   split into one node per actor type, prefixed with the actor label
+#'   (`"Human:Ask"`, `"AI:Ask"`). Default `FALSE` (a shared code is an error).
+#' @param source_data The original event data for an `mcml` input whose fitted
+#'   object did not keep it. Default `NULL`.
+#' @param time Name of an optional column holding the time of each event.
+#'   With it the events of a session are ordered by time, the `order` column
+#'   is not required, and a session is split where two events are further
+#'   apart than `time_threshold` seconds (900 by default; pass
+#'   `time_threshold = Inf` to keep sessions whole). Required for
+#'   `method = "latency"`. Default `NULL`.
+#' @param ... Further estimation arguments, such as `threshold`, `scaling`,
+#'   `time_threshold`, or `latency_floor`, `latency_cap`, `latency_aggregate`
+#'   and `latency_scope` for `method = "latency"`. With `start` or `end` the
+#'   network gains a start or an end state; these belong to no actor and
+#'   form the actor type `"Boundary"`, placed last. The plots draw them
+#'   above and below the actor types.
+#'
+#' @return An object of class `c("htna", "netobject", "cograph_network")`:
+#'   a transition network with its weight matrix, nodes, sequence data and
+#'   the actor partition (the actor type of every node and the ordered actor
+#'   types). With `group` or a clustering input, an `htna_group`: a named list
+#'   with one `htna` network per cohort or cluster, which keeps the clustering
+#'   assignments and diagnostics as attributes. An `mcml` input returns one
+#'   `htna`. [as.data.frame.htna()] returns the edges (one row per non-zero
+#'   transition, with the actor types of its source and target) or the nodes.
+#'
+#' @section Conditions:
+#' Errors inherit from `htna_error`. Specific classes:
+#' `htna_missing_column` when the session, order, time or code column is
+#' absent;
+#' `htna_actor_conflict` when a code belongs to more than one actor type and
+#' `disambiguate = FALSE`; `htna_unassigned_node` when a code has no actor
+#' type in `node_groups`; `htna_tied_times` when `method = "latency"` is
+#' given times that are tied within sessions; `htna_bad_input` for
+#' other invalid arguments.
+#'
+#' @references
+#' Lopez-Pernas, S., Misiejuk, K., & Saqr, M. (2026). How AI-generated
+#' feedback hinders or helps learning: A heterogeneous TNA study of learning
+#' dynamics. *Journal of Computer Assisted Learning*, 42(4), e70285.
+#' \doi{10.1002/jcal.70285}
+#'
+#' @seealso [summary.htna()] and [as.data.frame.htna()] to describe the
+#'   network; [plot_htna()] to draw it; [compare_htna()],
+#'   [permutation_htna()] and [bootstrap_htna()] for inference.
 #'
 #' @examples
-#' data(human_ai, human_simplified, ai_simplified)
-#'
-#' # Form 1: named list of per-actor frames
-#' net <- build_htna(list(Human = human_simplified, AI = ai_simplified))
-#' head(net$node_groups)
-#'
-#' # Form 2: single combined frame with a row-level actor-type tag
+#' data(human_ai)
 #' net <- build_htna(human_ai, actor_type = "actor_type")
+#' net
+#'
+#' # the same network from one data frame per actor type
+#' build_htna(list(Human = human_simplified, AI = ai_simplified))
+#'
+#' # or from a code-to-actor codebook
+#' build_htna(human_ai, node_groups = human_ai_codebook)
+#'
+#' # one network per phase, in the order of the factor levels
+#' grp <- build_htna(human_ai, actor_type = "actor_type", group = "phase")
+#' summary(grp)
 #'
 #' @export
 build_htna <- function(data,
@@ -131,12 +140,19 @@ build_htna <- function(data,
                        group        = NULL,
                        disambiguate = FALSE,
                        source_data  = NULL,
+                       time         = NULL,
                        ...) {
 
   dots <- list(...)
+  if (!is.null(time)) {
+    if (!is.character(time) || length(time) != 1L || is.na(time)) {
+      .htna_stop("`time` must be the name of one column, or NULL.")
+    }
+    dots$time <- time
+  }
   if ("actor_col" %in% names(dots)) {
-    stop("`actor_col` was renamed to `actor_type`. Use `actor_type = ",
-         deparse(dots$actor_col), "`.", call. = FALSE)
+    .htna_stop("`actor_col` was renamed to `actor_type`. Use `actor_type = ",
+               deparse(dots$actor_col), "`.")
   }
 
   # An MCML partition describes node groups, not separate fitted child
@@ -144,16 +160,15 @@ build_htna <- function(data,
   # transitions are reconstructed from the original source.
   if (inherits(data, "mcml")) {
     if (!is.null(actor_type)) {
-      stop("`actor_type` is not used for an `mcml` input; its node clusters ",
-           "are the actor groups.", call. = FALSE)
+      .htna_stop("`actor_type` is not used for an `mcml` input; its node clusters ",
+                 "are the actor groups.")
     }
     if (!is.null(group)) {
-      stop("An `mcml` expands to one global HTNA; do not also pass `group`.",
-           call. = FALSE)
+      .htna_stop("An `mcml` expands to one global HTNA; do not also pass `group`.")
     }
     if (isTRUE(disambiguate)) {
-      stop("`disambiguate` must be applied before fitting the `mcml`, not ",
-           "while expanding it.", call. = FALSE)
+      .htna_stop("`disambiguate` must be applied before fitting the `mcml`, not ",
+                 "while expanding it.")
     }
     return(.build_htna_from_mcml(
       data = data,
@@ -169,12 +184,11 @@ build_htna <- function(data,
   }
 
   if (!is.null(source_data)) {
-    stop("`source_data` is only used when `data` is an `mcml` object.",
-         call. = FALSE)
+    .htna_stop("`source_data` is only used when `data` is an `mcml` object.")
   }
   if (!is.null(actor_type) && !is.null(node_groups)) {
-    stop("Pass either `actor_type` (row-level) or `node_groups` ",
-         "(node-level), not both.", call. = FALSE)
+    .htna_stop("Pass either `actor_type` (row-level) or `node_groups` ",
+               "(node-level), not both.")
   }
 
   # Nestimate and tna clustering results already encode the outer cohort
@@ -182,17 +196,17 @@ build_htna <- function(data,
   # objects as named lists of actor data frames.
   if (.is_htna_clustering_input(data)) {
     if (!is.null(actor_type)) {
-      stop("`actor_type` is not available on a clustering result. Pass the ",
-           "node partition with `node_groups`, or cluster an existing HTNA ",
-           "object so Nestimate can preserve it.", call. = FALSE)
+      .htna_stop("`actor_type` is not available on a clustering result. Pass the ",
+                 "node partition with `node_groups`, or cluster an existing HTNA ",
+                 "object so Nestimate can preserve it.")
     }
     if (!is.null(group)) {
-      stop("A clustering result already defines the outer groups; do not ",
-           "also pass `group`.", call. = FALSE)
+      .htna_stop("A clustering result already defines the outer groups; do not ",
+                 "also pass `group`.")
     }
     if (isTRUE(disambiguate)) {
-      stop("`disambiguate` must be applied before clustering/fitting, not ",
-           "while converting a clustering result.", call. = FALSE)
+      .htna_stop("`disambiguate` must be applied before clustering/fitting, not ",
+                 "while converting a clustering result.")
     }
     return(.build_htna_from_clustering(
       data = data,
@@ -213,8 +227,7 @@ build_htna <- function(data,
     )
     schemas <- lapply(data, names)
     if (length(unique(schemas)) > 1L) {
-      stop("All data frames in `data` must share the same column schema.",
-           call. = FALSE)
+      .htna_stop("All data frames in `data` must share the same column schema.")
     }
     actor_levels <- names(data)
     n_per        <- vapply(data, nrow, integer(1L))
@@ -231,21 +244,22 @@ build_htna <- function(data,
     # and the other column tags each code with its actor type.
     if (is.data.frame(node_groups)) {
       if (ncol(node_groups) != 2L) {
-        stop("If `node_groups` is a data frame, it must have exactly two ",
-             "columns: the code column (named `", action,
-             "`) and the actor-type column.", call. = FALSE)
+        .htna_stop("If `node_groups` is a data frame, it must have exactly two ",
+                   "columns: the code column (named `", action,
+                   "`) and the actor-type column.")
       }
       if (!action %in% names(node_groups)) {
-        stop("`node_groups` data frame must contain the code column `",
-             action, "` (matching `action`).", call. = FALSE)
+        .htna_stop("`node_groups` data frame must contain the code column `",
+                   action, "` (matching `action`).",
+                   class = "htna_missing_column")
       }
       type_col   <- setdiff(names(node_groups), action)
       type_vals  <- node_groups[[type_col]]
       code_vals  <- as.character(node_groups[[action]])
       if (any(is.na(type_vals))) {
-        stop("`node_groups` data frame's `", type_col,
-             "` column has missing values; every code must be tagged ",
-             "with an actor type.", call. = FALSE)
+        .htna_stop("`node_groups` data frame's `", type_col,
+                   "` column has missing values; every code must be tagged ",
+                   "with an actor type.")
       }
       type_chr <- as.character(type_vals)
       # Drop unused factor levels so they don't become phantom actors.
@@ -270,8 +284,9 @@ build_htna <- function(data,
     all_codes <- unlist(node_groups, use.names = FALSE)
     if (anyDuplicated(all_codes)) {
       dups <- unique(all_codes[duplicated(all_codes)])
-      stop("Code(s) appear in more than one actor list in `node_groups`: ",
-           paste(dups, collapse = ", "), call. = FALSE)
+      .htna_stop("Code(s) appear in more than one actor list in `node_groups`: ",
+                 paste(dups, collapse = ", "),
+                 class = "htna_actor_conflict")
     }
     combined      <- data
     code_to_actor <- setNames(rep(names(node_groups), lengths(node_groups)), all_codes)
@@ -279,9 +294,10 @@ build_htna <- function(data,
     actor_vec     <- unname(code_to_actor[raw_codes])
     if (any(is.na(actor_vec))) {
       missing <- unique(raw_codes[is.na(actor_vec)])
-      stop("Codes in `data` not assigned to any actor in `node_groups`: ",
-           paste(missing, collapse = ", "),
-           ". Add them to `node_groups` or filter them out.", call. = FALSE)
+      .htna_stop("Codes in `data` not assigned to any actor in `node_groups`: ",
+                 paste(missing, collapse = ", "),
+                 ". Add them to `node_groups` or filter them out.",
+                 class = "htna_unassigned_node")
     }
     actor_levels <- names(node_groups)
   } else {
@@ -293,8 +309,8 @@ build_htna <- function(data,
     combined  <- data
     raw_col   <- combined[[actor_type]]
     if (any(is.na(raw_col))) {
-      stop("`actor_type` column has missing values; every row must be ",
-           "tagged with an actor type.", call. = FALSE)
+      .htna_stop("`actor_type` column has missing values; every row must be ",
+                 "tagged with an actor type.")
     }
     actor_vec <- as.character(raw_col)
     if (is.factor(raw_col)) {
@@ -307,8 +323,7 @@ build_htna <- function(data,
       actor_levels <- unique(actor_vec)
     }
     if (length(actor_levels) < 2L) {
-      stop("`actor_type` must contain at least two distinct actor types.",
-           call. = FALSE)
+      .htna_stop("`actor_type` must contain at least two distinct actor types.")
     }
   }
 
@@ -322,21 +337,31 @@ build_htna <- function(data,
   # Check if required columns exist
   # Session is only required if no actor is provided
   if (is.null(actor) && !session %in% names(combined)) {
-    stop("Column '", session, "' not found in data. ",
-         "Available columns: ", paste(names(combined), collapse = ", "), ". ",
-         "Either provide a data frame with a '", session, "' column or ",
-         "specify an 'actor' parameter to calculate sessions automatically.", call. = FALSE)
+    .htna_stop("Column '", session, "' not found in data. ",
+               "Available columns: ", paste(names(combined), collapse = ", "), ". ",
+               "Either provide a data frame with a '", session, "' column or ",
+               "specify an 'actor' parameter to calculate sessions automatically.",
+               class = "htna_missing_column")
   }
 
   # If actor is provided and session column doesn't exist, sessions will be auto-generated
   session_exists <- session %in% names(combined)
 
-  # Order is only required if no actor is provided
-  if (is.null(actor) && !order %in% names(combined)) {
-    stop("Column '", order, "' not found in data. ",
-         "Available columns: ", paste(names(combined), collapse = ", "), ". ",
-         "Either provide a data frame with an '", order, "' column or ",
-         "specify an 'actor' parameter for automatic ordering.", call. = FALSE)
+  if (!is.null(time) && !time %in% names(combined)) {
+    .htna_stop("Column '", time, "' (`time`) not found in data. ",
+               "Available columns: ", paste(names(combined), collapse = ", "),
+               ".", class = "htna_missing_column")
+  }
+
+  # Order is only required when neither an actor nor a time column orders
+  # the events
+  if (is.null(actor) && is.null(time) && !order %in% names(combined)) {
+    .htna_stop("Column '", order, "' not found in data. ",
+               "Available columns: ", paste(names(combined), collapse = ", "), ". ",
+               "Either provide a data frame with an '", order, "' column, ",
+               "name a time column with `time`, or specify an 'actor' ",
+               "parameter for automatic ordering.",
+               class = "htna_missing_column")
   }
 
   order_exists <- order %in% names(combined)
@@ -357,14 +382,15 @@ build_htna <- function(data,
     split(as.character(combined[[action]]), actor_fac),
     unique
   )
-  overlap <- Reduce(intersect, codes_by_actor)
+  # A code is shared when it occurs under two or more actors (not only when
+  # it occurs under all of them, which is what matters with 3+ actors).
+  all_codes <- unlist(codes_by_actor, use.names = FALSE)
+  overlap   <- unique(all_codes[duplicated(all_codes)])
   if (length(overlap) > 0L && !disambiguate) {
-    stop(
-      "Code(s) appear in more than one actor group: ",
-      paste(overlap, collapse = ", "),
-      ". Pass `disambiguate = TRUE` to prefix codes with the actor label.",
-      call. = FALSE
-    )
+    .htna_stop("Code(s) appear in more than one actor group: ",
+               paste(overlap, collapse = ", "),
+               ". Pass `disambiguate = TRUE` to prefix codes with the actor ",
+               "label.", class = "htna_actor_conflict")
   }
   if (disambiguate) {
     combined[[action]] <- paste(actor_vec, combined[[action]], sep = ":")
@@ -382,6 +408,13 @@ build_htna <- function(data,
   } else if (session_exists) {
     # Order by session only
     combined <- combined[order(combined[[session]]), , drop = FALSE]
+  }
+
+  if (identical(method, "latency") && !is.null(time) &&
+      !is.character(dots$latency_cap)) {
+    .check_latency_times(combined, time = time, action = action,
+                         unit = if (session_exists) session else actor,
+                         cap = dots$latency_cap %||% 0.95)
   }
 
   # ---- Delegate to Nestimate::build_network ----
@@ -415,6 +448,28 @@ build_htna <- function(data,
   actor_flat   <- rep(names(codes_by_actor), lengths(codes_by_actor))
   actor_lookup <- setNames(actor_flat, codes_flat)
 
+  # The start and end states (`start`, `end`) are produced by no actor: they
+  # form an actor type of their own, placed last.
+  boundary <- .boundary_labels(dots)
+  if (length(boundary)) {
+    clash <- intersect(boundary, codes_flat)
+    if (length(clash)) {
+      .htna_stop("The start or end state is named like a code: ",
+                 paste(clash, collapse = ", "),
+                 ". Give it another label with `start` or `end`.",
+                 class = "htna_actor_conflict")
+    }
+    if (.boundary_type %in% actor_levels) {
+      .htna_stop("`", .boundary_type, "` is the actor type of the start and ",
+                 "end states; rename that actor type or leave out `start` ",
+                 "and `end`.", class = "htna_actor_conflict")
+    }
+    actor_lookup <- c(actor_lookup,
+                      setNames(rep(.boundary_type, length(boundary)),
+                               unname(boundary)))
+    actor_levels <- c(actor_levels, .boundary_type)
+  }
+
   if (!is.null(group)) {
     # When using node_groups, filter each group to only include codes that
     # actually appear in that group's data
@@ -422,27 +477,59 @@ build_htna <- function(data,
       # Validate no NA values in group column before proceeding
       group_col <- combined[[group]]
       if (any(is.na(group_col))) {
-        stop("Group column `", group, "` contains NA values. Every row must be ",
-             "assigned to a group.", call. = FALSE)
+        .htna_stop("Group column `", group, "` contains NA values. Every row must be ",
+                   "assigned to a group.")
       }
 
       group_codes <- split(as.character(combined[[action]]), group_col)
       net <- Map(function(subnet, group_name) {
-        actual_codes <- unique(group_codes[[group_name]])
+        actual_codes <- c(unique(group_codes[[group_name]]),
+                          unname(boundary))
         .inject_htna_partition_filtered(subnet, actor_lookup, actor_levels, actual_codes)
       }, net, names(net))
     } else {
       net <- lapply(net, .inject_htna_partition, actor_lookup, actor_levels)
     }
+    net <- lapply(net, .set_boundary, boundary = boundary)
+    net <- net[.cohort_order(names(net), combined[[group]])]
     class(net) <- c("htna_group", "netobject_group", "list")
     attr(net, "actor_levels") <- actor_levels
     return(net)
   }
 
-  .inject_htna_partition(net, actor_lookup, actor_levels)
+  .set_boundary(.inject_htna_partition(net, actor_lookup, actor_levels),
+                boundary)
+}
+
+#' Record which nodes are the start and the end state
+#'
+#' `boundary` is a character vector named `start` and/or `end`. The plots
+#' read it to place the two states as anchors instead of laying them out as
+#' an actor type.
+#' @keywords internal
+#' @noRd
+.set_boundary <- function(net, boundary) {
+  if (length(boundary)) net$boundary <- boundary
+  net
+}
+
+#' Order cohorts by the levels of a factor grouping column
+#'
+#' The estimation engine returns cohorts in order of first appearance in the
+#' data. A factor `group` column declares its own order (e.g. Early, Late),
+#' which is then used for the cohorts and for the pair names of every
+#' grouped comparison. Character columns keep the engine's order.
+#' @keywords internal
+#' @noRd
+.cohort_order <- function(cohort_names, group_col) {
+  if (!is.factor(group_col)) return(cohort_names)
+  declared <- levels(group_col)
+  c(declared[declared %in% cohort_names],
+    setdiff(cohort_names, declared))
 }
 
 #' @keywords internal
+#' @noRd
 .inject_htna_partition <- function(net, actor_lookup, actor_levels) {
   node_actor <- unname(actor_lookup[net$nodes$label])
   net$nodes$groups <- factor(node_actor, levels = actor_levels)
@@ -457,28 +544,140 @@ build_htna <- function(data,
   net
 }
 
+#' Keep only the codes a cohort uses, then attach the actor partition
+#'
+#' The engine builds every cohort over the codes of all cohorts. With
+#' `node_groups` a cohort keeps the codes that occur in it, and every field
+#' that depends on the node set follows: weights, nodes and their ids, the
+#' edge list, the counts and the initial probabilities.
 #' @keywords internal
-.inject_htna_partition_filtered <- function(net, actor_lookup, actor_levels, actual_codes) {
-  # Filter nodes to only include those that actually appear in this group's data
-  nodes_to_keep <- net$nodes$label %in% actual_codes
+#' @noRd
+.inject_htna_partition_filtered <- function(net, actor_lookup, actor_levels,
+                                            actual_codes) {
+  net <- .htna_set_nodes(net, intersect(net$nodes$label, actual_codes))
+  .inject_htna_partition(net, actor_lookup, actor_levels)
+}
 
-  # Filter nodes dataframe
-  net$nodes <- net$nodes[nodes_to_keep, , drop = FALSE]
-
-  # Filter weights matrix
-  codes_to_keep <- rownames(net$weights) %in% actual_codes
-  net$weights <- net$weights[codes_to_keep, codes_to_keep, drop = FALSE]
-
-  # Add actor group information for remaining nodes
-  node_actor <- unname(actor_lookup[net$nodes$label])
-  net$nodes$groups <- factor(node_actor, levels = actor_levels)
-  net$node_groups <- data.frame(
-    node  = net$nodes$label,
-    group = as.character(node_actor),
-    stringsAsFactors = FALSE
-  )
-  attr(net$node_groups, "actor_levels") <- actor_levels
-  net$actor_levels <- actor_levels
-  if (!inherits(net, "htna")) class(net) <- c("htna", class(net))
+#' Give a network the node set `nodes`, in that order
+#'
+#' Nodes not in `nodes` are dropped and nodes the network lacks are added
+#' with zero weights, so two cohorts can be brought to one node set. The
+#' sequence data are not touched.
+#' @keywords internal
+#' @noRd
+.htna_set_nodes <- function(net, nodes) {
+  resize <- function(m) {
+    if (!is.matrix(m)) return(m)
+    out <- matrix(0, nrow = length(nodes), ncol = length(nodes),
+                  dimnames = list(nodes, nodes))
+    shared <- intersect(nodes, rownames(m))
+    out[shared, shared] <- m[shared, shared]
+    storage.mode(out) <- storage.mode(m)
+    out
+  }
+  net$weights <- resize(net$weights)
+  net$frequency_matrix <- resize(net$frequency_matrix)
+  if (!is.null(net$initial) && !is.null(names(net$initial))) {
+    initial <- stats::setNames(numeric(length(nodes)), nodes)
+    shared <- intersect(nodes, names(net$initial))
+    initial[shared] <- net$initial[shared]
+    net$initial <- initial
+  }
+  net$nodes <- data.frame(id = seq_along(nodes), label = nodes, name = nodes,
+                          stringsAsFactors = FALSE)
+  W <- net$weights
+  keep <- W != 0 & !is.na(W)
+  if (isFALSE(net$directed)) keep <- keep & upper.tri(W, diag = TRUE)
+  idx <- which(keep, arr.ind = TRUE)
+  net$edges <- data.frame(from = unname(idx[, 1L]), to = unname(idx[, 2L]),
+                          weight = W[idx], stringsAsFactors = FALSE)
+  net$n_nodes <- length(nodes)
+  net$n_edges <- nrow(net$edges)
   net
+}
+
+#' Bring networks with different node sets to their union
+#'
+#' Cohorts built with `node_groups` keep only their own codes, and the
+#' engine compares networks over one node set. Networks that already share
+#' their nodes are returned unchanged.
+#' @keywords internal
+#' @noRd
+.htna_align_nodes <- function(nets) {
+  node_sets <- lapply(nets, function(net) as.character(net$nodes$label))
+  same <- vapply(node_sets, setequal, logical(1L), y = node_sets[[1L]])
+  if (all(same)) return(nets)
+  partition <- do.call(rbind, lapply(unname(nets), function(net) {
+    net$node_groups
+  }))
+  partition <- partition[!duplicated(partition$node), , drop = FALSE]
+  conflict <- unique(unlist(lapply(nets, function(net) {
+    ng <- net$node_groups
+    ng$node[ng$group != partition$group[match(ng$node, partition$node)]]
+  })))
+  if (length(conflict)) {
+    .htna_stop("Nodes assigned to different actor types across the networks: ",
+               paste(conflict, collapse = ", "), ".",
+               class = "htna_actor_conflict")
+  }
+  nodes <- sort(partition$node, method = "radix")
+  actor_lookup <- stats::setNames(as.character(partition$group),
+                                  as.character(partition$node))
+  out <- lapply(nets, function(net) {
+    .inject_htna_partition(.htna_set_nodes(net, nodes), actor_lookup,
+                           net$actor_levels)
+  })
+  attributes(out) <- attributes(nets)
+  out
+}
+
+.boundary_type <- "Boundary"
+
+#' Labels of the start and end states requested through `start` and `end`
+#' @keywords internal
+#' @noRd
+.boundary_labels <- function(dots) {
+  label <- function(value, default) {
+    if (is.null(value) || isFALSE(value)) return(character(0L))
+    if (isTRUE(value)) return(default)
+    as.character(value)
+  }
+  c(start = label(dots$start, "Start"), end = label(dots$end, "End"))
+}
+
+#' Stop when the event times cannot give a reply latency
+#'
+#' `method = "latency"` weights a reply (an event following an event with
+#' another code) by the time since the previous event, capped at a
+#' percentile of those times. When so many replies carry the time of the
+#' event before them that this percentile is zero, the engine cannot place
+#' the cap. `data` is ordered within sessions; ordering by time is stable,
+#' so tied events keep that order.
+#' @keywords internal
+#' @noRd
+.check_latency_times <- function(data, time, action, unit = NULL,
+                                 cap = 0.95) {
+  units <- if (is.null(unit)) rep(1L, nrow(data)) else data[[unit]]
+  ord <- order(units, data[[time]])
+  n <- length(ord)
+  if (n < 2L) return(invisible(TRUE))
+  units <- units[ord]
+  times <- data[[time]][ord]
+  codes <- as.character(data[[action]][ord])
+  reply <- units[-1L] == units[-n] & codes[-1L] != codes[-n]
+  tied <- (times[-1L] == times[-n])[which(reply)]
+  tied <- tied[!is.na(tied)]
+  if (!length(tied) ||
+      stats::quantile(as.numeric(!tied), probs = cap, names = FALSE) > 0) {
+    return(invisible(TRUE))
+  }
+  .htna_stop("`method = \"latency\"` needs the time of each event, but in `",
+             time, "` ", sprintf("%.0f%%", 100 * mean(tied)),
+             " of the replies carry the same time as the event before ",
+             "them: the times are tied within ",
+             if (is.null(unit)) "the sequence" else "sessions",
+             ", so the reply latencies are 0. Use a column that times the ",
+             "single events, or give the cap in seconds (for example ",
+             "`latency_cap = \"120s\"`).",
+             class = "htna_tied_times")
 }

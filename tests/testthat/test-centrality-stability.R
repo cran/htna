@@ -1,8 +1,8 @@
 # Thorough tests for centrality_stability_htna(). The wrapper itself is
 # thin (no embedded models to repair) so the focus is on: input
 # validation, htna_group iteration, parameter forwarding, structure of
-# the returned `net_stability` object, and equivalence to the
-# underlying Nestimate call.
+# the returned `net_stability` object. The comparison against the
+# underlying Nestimate call is local-only: equivalence/test-equiv-nestimate-cs.R.
 
 # ---- Structure & class -----------------------------------------------
 
@@ -37,20 +37,19 @@ test_that("centrality_stability_htna() returns the documented structure", {
   expect_equal(cs$method, "pearson")
 })
 
-# ---- Equivalence to the underlying Nestimate call --------------------
+# ---- The CS-coefficient follows from the correlations ------------------
 
-test_that("centrality_stability_htna() matches Nestimate::centrality_stability()", {
-  skip_if_not_installed("Nestimate")
+test_that("centrality_stability_htna() CS is the largest drop that stays correlated", {
   net <- make_htna()
   cs_h <- centrality_stability_htna(net, iter = 5L, seed = 11L)
-  # Same measures on both sides: Nestimate's default set differs from the one
-  # centrality_stability_htna() requests.
-  cs_n <- Nestimate::centrality_stability(net, measures = htna_cs_measures(),
-                                          iter = 5L, seed = 11L)
-  # Same seed → bit-equal results (the wrapper only adds a class tag)
-  expect_equal(cs_h$cs,           cs_n$cs)
-  expect_equal(cs_h$correlations, cs_n$correlations)
-  expect_equal(cs_h$measures,     cs_n$measures)
+  # per measure: the largest drop proportion whose draws reach `threshold` in
+  # at least `certainty` of iterations, 0 when none does; NA counts as below
+  expected <- vapply(names(cs_h$correlations), function(m) {
+    r <- cs_h$correlations[[m]]
+    reached <- colMeans(!is.na(r) & r >= cs_h$threshold) >= cs_h$certainty
+    if (any(reached)) max(cs_h$drop_prop[reached]) else 0
+  }, numeric(1))
+  expect_equal(cs_h$cs[names(expected)], expected)
 })
 
 # ---- Parameter forwarding --------------------------------------------
@@ -317,4 +316,42 @@ test_that("centrality_stability_htna(): iter sweep round-trips without error", {
     expect_equal(cs$iter, it)
     expect_s3_class(cs, "htna_stability")
   }
+})
+
+# ---- plot.htna_stability (0.3.5) ---------------------------------------------
+
+test_that("the stability chart uses Okabe-Ito colours and redundant encodings", {
+  skip_if_not_installed("ggplot2")
+  net <- make_htna()
+  cs <- centrality_stability_htna(net, iter = 10, seed = 1)
+  p <- .htna_stability_ggplot(cs)
+  expect_s3_class(p, "ggplot")
+  built <- ggplot2::ggplot_build(p)
+  okabe_ito <- c("#E69F00", "#56B4E9", "#009E73", "#0072B2", "#D55E00",
+                 "#CC79A7", "#F0E442", "#999999", "#000000")
+  line_layer <- built$data[[2L]]
+  expect_true(all(toupper(line_layer$colour) %in% okabe_ito))
+  # each measure differs in line type and point shape, not colour alone
+  expect_equal(length(unique(line_layer$linetype)), length(cs$cs))
+  expect_equal(length(unique(built$data[[3L]]$shape)), length(cs$cs))
+  # the threshold line sits at the threshold
+  expect_equal(unique(built$data[[4L]]$yintercept), cs$threshold)
+  with_null_device(expect_s3_class(plot(cs), "ggplot"))
+})
+
+test_that("grouped stability charts are titled with the cohort names", {
+  skip_if_not_installed("ggplot2")
+  grp <- make_htna_group()
+  cs <- centrality_stability_htna(grp, iter = 10, seed = 1)
+  plots <- with_null_device(plot(cs))
+  expect_named(plots, names(grp))
+  expect_identical(vapply(plots, function(p) p$labels$title, character(1)),
+                   setNames(names(grp), names(grp)))
+})
+
+test_that("the stability chart raises a classed error without ggplot2", {
+  net <- make_htna()
+  cs <- centrality_stability_htna(net, iter = 10, seed = 1)
+  local_mocked_bindings(.has_ggplot2 = function() FALSE)
+  expect_error(.htna_stability_ggplot(cs), class = "htna_missing_package")
 })

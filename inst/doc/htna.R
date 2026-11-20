@@ -1,79 +1,64 @@
-## ----setup, include=FALSE-----------------------------------------------------
-knitr::opts_chunk$set(
-  collapse = TRUE,
-  comment  = "#>",
-  message  = FALSE,
-  warning  = FALSE,
-  fig.width  = 10,
-  fig.height = 7,
-  dpi = 90
-)
+## ----options, include = FALSE-----------------------------------------------------------
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", message = FALSE,
+                      fig.width = 7, fig.height = 5.5, fig.align = "center",
+                      dpi = 96)
+old_options <- options(digits = 3, width = 90)
 
-## -----------------------------------------------------------------------------
+## ----setup------------------------------------------------------------------------------
 library(htna)
-data(human_ai)
 
-net <- build_htna(human_ai, actor_type = "actor_type", actor = "session_id")
+## ----data-------------------------------------------------------------------------------
+with(human_ai, table(actor_type))
 
-## -----------------------------------------------------------------------------
+## ----build------------------------------------------------------------------------------
+net <- build_htna(human_ai, actor_type = "actor_type")
+summary(net)
+
+## ----edges------------------------------------------------------------------------------
+head(as.data.frame(net))
+
+## ----actor-pairs------------------------------------------------------------------------
+as.data.frame(summary(net), what = "actor_pairs")
+
+## ----plot, fig.height = 6---------------------------------------------------------------
 plot_htna(net)
 
-## ----fig.height = 5-----------------------------------------------------------
-sequence_plot_htna(net, by = "state", type = "index")
+## ----centralities-----------------------------------------------------------------------
+centralities_htna(net, measures = c("InStrength", "OutStrength",
+                                    "Betweenness"))
 
-## -----------------------------------------------------------------------------
-sequence_plot_htna(net, by = "state", type = "heatmap")
+## ----plot-centralities, fig.height = 5--------------------------------------------------
+plot_centralities(net, measures = c("InStrength", "Betweenness"),
+                  by = "group")
 
-## ----fig.height=4-------------------------------------------------------------
-sequence_plot_htna(net, by = "group", type = "distribution", na_color = "white")
+## ----prune------------------------------------------------------------------------------
+pruned <- prune_htna(net, threshold = 0.05)
+as.data.frame(summary(pruned), what = "actor_pairs")
 
-## -----------------------------------------------------------------------------
-centralities_htna(net)
+## ----meta-paths-------------------------------------------------------------------------
+extract_meta_paths(net, level = "type", length = 3)
 
-## ----fig.height = 9-----------------------------------------------------------
-plot_centralities(net, by = "state")
+## ----schema-----------------------------------------------------------------------------
+print(extract_meta_paths(net, schema = "Human->AI->Human"), n = 5)
 
-## ----fig.height = 9-----------------------------------------------------------
-plot_centralities(net, by = "group")
+## ----sequences, fig.height = 5.5--------------------------------------------------------
+sequence_plot_htna(net, type = "heatmap")
 
-## -----------------------------------------------------------------------------
-boot <- bootstrap_htna(net)
+## ----bootstrap--------------------------------------------------------------------------
+boot <- bootstrap_htna(net, iter = 100, seed = 1)
+boot
+
+## ----bootstrap-plot, fig.height = 6-----------------------------------------------------
 plot_htna_bootstrap(boot)
 
-## -----------------------------------------------------------------------------
-plot_htna_bootstrap(boot, display = "significant")
-
-## -----------------------------------------------------------------------------
+## ----stability--------------------------------------------------------------------------
 cs <- centrality_stability_htna(net, iter = 100, seed = 1)
-cs$cs
+as.data.frame(cs)
 
-## -----------------------------------------------------------------------------
+## ----reliability------------------------------------------------------------------------
 rel <- reliability_htna(net, iter = 100, seed = 1)
-rel$summary
+summary(rel)
 
-## -----------------------------------------------------------------------------
-grouped <-  build_htna(human_ai, actor_type = "actor_type", group = "phase")
-
-early <- grouped[["Early"]]
-late  <- grouped[["Late"]]
-
-plot_htna_diff(early, late)
-
-## -----------------------------------------------------------------------------
-perm <- permutation_htna(early, late, iter = 200)
-plot_htna_diff(perm)
-
-## -----------------------------------------------------------------------------
-plot_htna_diff(perm, show_nonsig = TRUE)
-
-## -----------------------------------------------------------------------------
-extract_meta_paths(net, length = 3)
-
-## -----------------------------------------------------------------------------
-extract_meta_paths(net, schema = "Human->AI->Human")
-extract_meta_paths(net, schema = "Human->Ask->*")
-
-## -----------------------------------------------------------------------------
-extract_meta_paths(net, length = 3, min_lift = 2)
-extract_meta_paths(net, level = "type", length = 3, min_lift = 1.2)
+## ----restore-options, include = FALSE-----------------------------------------
+options(old_options)
 

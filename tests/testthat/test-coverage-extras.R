@@ -515,7 +515,8 @@ test_that("build_htna() rejects an unknown method via Nestimate", {
 
 test_that("summary.htna() returns structured info and prints actor partition", {
   net <- make_htna()
-  out <- capture.output(s <- summary(net))
+  s <- summary(net)
+  out <- capture.output(print(s))
 
   # Header lines
   expect_true(any(grepl("htna network", out)))
@@ -533,7 +534,8 @@ test_that("summary.htna() returns structured info and prints actor partition", {
 
   # Returned structure
   expect_named(s, c("actors", "edges_by_actor", "network_metrics", "n_nodes",
-                    "n_edges", "n_sessions", "n_timesteps", "method"))
+                    "n_edges", "directed", "n_sessions", "n_timesteps",
+                    "method"))
   expect_s3_class(s$actors, "data.frame")
   expect_setequal(s$actors$actor, c("Human", "AI"))
   expect_equal(sum(s$actors$n_nodes), nrow(net$node_groups))
@@ -559,7 +561,7 @@ test_that("summary.htna() truncates long node lists with ellipsis", {
   )
   net <- build_htna(d, node_groups = list(Human = human_codes,
                                           AI    = ai_codes))
-  out <- capture.output(summary(net, max_nodes = 5L))
+  out <- capture.output(print(summary(net, max_nodes = 5L)))
   # Each actor has 20 nodes, max_nodes = 5 → should report "+15 more".
   expect_true(any(grepl("\\(\\+15 more\\)", out)))
 })
@@ -573,7 +575,7 @@ test_that("summary.htna() preserves the canonical actor order in printed lines",
   # AI listed first → its actor-list line must appear before Human's
   net <- build_htna(d, node_groups = list(AI    = c("Y1","Y2"),
                                           Human = c("X1","X2")))
-  out <- capture.output(summary(net))
+  out <- capture.output(print(summary(net)))
   # Match the actor-list lines specifically (they include "(N nodes):"
   # which the edge-matrix rows don't).
   ai_line    <- grep("^  AI .*\\(.*nodes\\):",    out)
@@ -585,7 +587,8 @@ test_that("summary.htna() preserves the canonical actor order in printed lines",
 
 test_that("summary.htna_group() iterates each cohort", {
   grp <- make_htna_group()
-  out <- capture.output(s <- summary(grp))
+  s <- summary(grp)
+  out <- capture.output(print(s))
   expect_true(any(grepl("htna_group: 2 cohorts", out)))
   expect_true(any(grepl("=== Control ===", out)))
   expect_true(any(grepl("=== Experimental ===", out)))
@@ -598,7 +601,8 @@ test_that("summary.htna_group() iterates each cohort", {
 test_that("summary.htna_group() handles empty group gracefully", {
   empty <- structure(list(),
                      class = c("htna_group", "netobject_group", "list"))
-  out <- capture.output(s <- summary(empty))
+  s <- summary(empty)
+  out <- capture.output(print(s))
   expect_true(any(grepl("empty", out)))
   expect_length(s, 0L)
 })
